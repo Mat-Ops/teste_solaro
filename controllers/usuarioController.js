@@ -1,5 +1,5 @@
 const db = require('../db/db');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const Swal = require('sweetalert2');
 const moment = require('moment');
 
@@ -185,15 +185,28 @@ exports.cadastrarContrato = (req, res) => {
         VALUES (?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL ? MONTH), ?, ?, ?, ?, 1)
     `;
 
-    db.query(sqlContrato, [usuario_id, meses, meses, estado_fazenda, preco_kwh, geracao_kwh], (err2) => {
+    const sqlInsereEstoque = `
+        UPDATE estoque_kwh_estados SET kwh_disponivel = kwh_disponivel + ? 
+         WHERE estado = ?
+    `;
+    
+    db.query(sqlInsereEstoque, [geracao_kwh, estado_fazenda], (err2) => {
         if (err2) {
             console.error('Erro ao cadastrar contrato:', err2);
             return res.status(500).send('Erro ao cadastrar contrato.');
         }
 
-        return res.redirect('/home_fornecedor');
+        db.query(sqlContrato, [usuario_id, meses, meses, estado_fazenda, preco_kwh, geracao_kwh], (err2) => {
+            if (err2) {
+                console.error('Erro ao cadastrar contrato:', err2);
+                return res.status(500).send('Erro ao cadastrar contrato.');
+            }
+
+            return res.redirect('/home_fornecedor');
+        });
     });
 };
+
 
 exports.cadastrarContratoCliente = (req, res) => {
     const {
@@ -384,7 +397,7 @@ exports.salvarKwh = (req, res) => {
         return res.status(401).send('Usuário não autenticado.');
     }
 
-    const { kwh_gerado } = req.body;
+    const { kwh_gerado, mes_referencia} = req.body;
     const userId = req.session.usuario.id;
 
     const sqlBuscaContrato = `
@@ -406,6 +419,53 @@ exports.salvarKwh = (req, res) => {
         const consumoAntigo = parseFloat(contrato.consumo_medio_kwh);
         const consumoNovo = parseFloat(kwh_gerado);
         const precoBaseFornecedor = parseFloat(mediaValorFatura.toFixed(2));
+        const anoAtual = new Date().getFullYear();
+        const mesReferencia = mes_referencia;
+
+        let dataReferencia = '';
+
+        console.log('Mês: ', mesReferencia);
+
+    switch (parseInt(mesReferencia)) {
+        case 1:
+            dataReferencia = `${anoAtual}-01-01`;
+            break;
+        case 2:
+            dataReferencia = `${anoAtual}-02-01`;
+            break;
+        case 3:
+            dataReferencia = `${anoAtual}-03-01`;
+            break;
+        case 4:
+            dataReferencia = `${anoAtual}-04-01`;
+            break;
+        case 5:
+            dataReferencia = `${anoAtual}-05-01`;
+            break;
+        case 6:
+            dataReferencia = `${anoAtual}-06-01`;
+            break;
+        case 7:
+            dataReferencia = `${anoAtual}-07-01`;
+            break;
+        case 8:
+            dataReferencia = `${anoAtual}-08-01`;
+            break;
+        case 9:
+            dataReferencia = `${anoAtual}-09-01`;
+            break;
+        case 10:
+            dataReferencia = `${anoAtual}-10-01`;
+            break;
+        case 11:
+            dataReferencia = `${anoAtual}-11-01`;
+            break;
+        case 12:
+            dataReferencia = `${anoAtual}-12-01`;
+            break;
+        default:
+            return res.status(400).send('Mês inválido.');
+    }
 
         // 1. Fechar histórico anterior
         const sqlFechaHistoricoAnterior = `
@@ -415,6 +475,7 @@ exports.salvarKwh = (req, res) => {
               AND usuario_id = ?
               AND data_fim IS NULL
         `;
+        
 
         db.query(sqlFechaHistoricoAnterior, [idContrato, userId], (errFechar) => {
             if (errFechar) return res.status(500).send('Erro ao fechar histórico anterior.');
@@ -432,7 +493,7 @@ exports.salvarKwh = (req, res) => {
                     contrato_cliente_id
                 )
                 SELECT
-                    ?, ?, ?, taxa_percentual, preco_final_cliente, CURDATE(), NULL, contrato_cliente_id
+                    ?, ?, ?, taxa_percentual, preco_final_cliente, ?, NULL, contrato_cliente_id
                 FROM historico_precos
                 WHERE contrato_cliente_id = ?
                   AND usuario_id = ?
@@ -440,7 +501,7 @@ exports.salvarKwh = (req, res) => {
                 LIMIT 1
             `;
 
-            db.query(sqlNovoHistorico, [userId, estado, precoBaseFornecedor, idContrato, userId], (err1) => {
+            db.query(sqlNovoHistorico, [userId, estado, precoBaseFornecedor, dataReferencia, idContrato, userId], (err1) => {
                 if (err1) return res.status(500).send('Erro ao registrar histórico.');
 
                 // 3. Repor consumo antigo no estoque
@@ -481,8 +542,9 @@ exports.salvarKwh = (req, res) => {
                             // 7. Criar pagamento pendente para o próximo mês
                             const valorFaturaComDesconto = parseFloat((consumoNovo * precoFinalKwh).toFixed(2));
                             const hoje = new Date();
-                            const primeiroDiaProximoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
-                            const dataPagamento = primeiroDiaProximoMes.toISOString().split('T')[0];
+                     //     const primeiroDiaProximoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
+                            const dataPagamento = new Date(dataReferencia).toISOString().split('T')[0];
+
 
                             const sqlPagamento = `
                                 INSERT INTO pagamento_cliente
